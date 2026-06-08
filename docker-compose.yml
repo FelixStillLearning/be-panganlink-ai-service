@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: be_ai_service_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password  # Sesuaikan dengan DB_PASS di .env
+      POSTGRES_DB: app
+    ports:
+      - "5433:5432" # Menggunakan port host 5433 agar tidak bentrok dengan Go jika dijalankan bersamaan
+    volumes:
+      - ai_service_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  ai_service_db_data:
