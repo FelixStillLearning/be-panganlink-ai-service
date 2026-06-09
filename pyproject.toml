@@ -12,6 +12,9 @@ dependencies = [
     "pydantic-settings>=2.2.0",
     "pandas>=2.0.0",
     "prophet>=1.1.5",
+    "scikit-learn>=1.4.0",
+    "matplotlib>=3.8.0",
+    "joblib>=1.3.0",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +23,10 @@ dev = [
     "httpx>=0.27.0",
     "ruff>=0.4.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "ml*"]
 
 [tool.ruff]
 line-length = 88
