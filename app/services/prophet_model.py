@@ -36,11 +36,13 @@ def _model_path(komoditas_id: int) -> Path:
 
 
 def fetch_historical_data(komoditas_id: int) -> pd.DataFrame:
-    name = COMMODITIES.get(komoditas_id)
-    if not name:
+    """Fetch historical data from CSV files"""
+    global COMMODITIES
+    komoditas_name = COMMODITIES.get(komoditas_id)
+    if not komoditas_name:
         return pd.DataFrame()
-    
-    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{name}_2022_2026.csv"
+        
+    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{komoditas_name}_2022_2026.csv"
     if not csv_path.exists():
         raise ValueError(f"File CSV tidak ditemukan: {csv_path}")
         
@@ -56,6 +58,55 @@ def fetch_historical_data(komoditas_id: int) -> pd.DataFrame:
         df = df.set_index("ds").resample("D").interpolate(method="linear").reset_index()
         
     return df
+
+def append_historical_data(komoditas_id: int, tanggal: str, harga_aktual: float) -> bool:
+    """Append new actual data from admin to the CSV file"""
+    global COMMODITIES
+    komoditas_name = COMMODITIES.get(komoditas_id)
+    if not komoditas_name:
+        return False
+        
+    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{komoditas_name}_2022_2026.csv"
+    if not csv_path.exists():
+        return False
+        
+    try:
+        df = pd.read_csv(csv_path)
+        # Check if date already exists
+        if tanggal in df['Date_Param'].values:
+            df.loc[df['Date_Param'] == tanggal, 'Price'] = harga_aktual
+        else:
+            new_row = pd.DataFrame([{'Date_Param': tanggal, 'Price': harga_aktual}])
+            df = pd.concat([df, new_row], ignore_index=True)
+            
+        df['Date_Param'] = pd.to_datetime(df['Date_Param']).dt.strftime('%Y-%m-%d')
+        df = df.sort_values('Date_Param')
+        df.to_csv(csv_path, index=False)
+        return True
+    except Exception as e:
+        print(f"Error updating data: {e}")
+        return False
+
+def remove_historical_data(komoditas_id: int, tanggal: str) -> bool:
+    """Remove historical data from the CSV file"""
+    global COMMODITIES
+    komoditas_name = COMMODITIES.get(komoditas_id)
+    if not komoditas_name:
+        return False
+        
+    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{komoditas_name}_2022_2026.csv"
+    if not csv_path.exists():
+        return False
+        
+    try:
+        df = pd.read_csv(csv_path)
+        # Hapus baris yang tanggalnya sama
+        df = df[df['Date_Param'] != tanggal]
+        df.to_csv(csv_path, index=False)
+        return True
+    except Exception as e:
+        print(f"Error deleting data: {e}")
+        return False
 
 
 def _load_model(komoditas_id: int):

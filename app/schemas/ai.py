@@ -12,3 +12,8 @@ class AIResponse(BaseModel):
     komoditas_id: str
     predictions: List[Dict[str, Any]]
     historical: List[Dict[str, Any]] = []
+
+class UpdateDataRequest(BaseModel):
+    komoditas_id: str
+    tanggal: str
+    harga_aktual: float
