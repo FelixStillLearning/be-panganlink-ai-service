@@ -4,13 +4,13 @@ from app.services.prophet_model import get_recommendation, generate_forecast, ap
 
 router = APIRouter()
 
-@router.post("/recommend", response_model=AIResponse)
+@router.post("/recommend")
 def recommend_price(request: RecommendRequest):
     try:
         preds = get_recommendation(request.komoditas_id)
         if not preds:
             raise HTTPException(status_code=404, detail="Not enough data to generate recommendation")
-        return AIResponse(komoditas_id=request.komoditas_id, predictions=preds)
+        return preds
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
