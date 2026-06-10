@@ -1,5 +1,9 @@
+import sys
 from pathlib import Path
 from typing import Dict, Optional
+
+# Tambahkan root directory ke sys.path agar bisa di-run dari folder 'ml'
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import joblib
 import pandas as pd
@@ -10,26 +14,21 @@ from ml.preprocess import preprocess_data
 from ml.split import time_train_val_test_split
 from ml.utils import COMMODITIES, MODEL_DIR, fetch_historical_data
 
-GRID = [
-    {"changepoint_prior_scale": 0.01, "seasonality_mode": "additive"},
-    {"changepoint_prior_scale": 0.05, "seasonality_mode": "additive"},
-    {"changepoint_prior_scale": 0.1, "seasonality_mode": "additive"},
-    {"changepoint_prior_scale": 0.5, "seasonality_mode": "additive"},
-    {"changepoint_prior_scale": 1.0, "seasonality_mode": "additive"},
-    {"changepoint_prior_scale": 3.0, "seasonality_mode": "additive"},
-    {"changepoint_prior_scale": 0.01, "seasonality_mode": "multiplicative"},
-    {"changepoint_prior_scale": 0.05, "seasonality_mode": "multiplicative"},
-    {"changepoint_prior_scale": 0.1, "seasonality_mode": "multiplicative"},
-    {"changepoint_prior_scale": 0.5, "seasonality_mode": "multiplicative"},
-    {"changepoint_prior_scale": 1.0, "seasonality_mode": "multiplicative"},
-    {"changepoint_prior_scale": 3.0, "seasonality_mode": "multiplicative"},
-]
+GRID = []
+for cps in [0.001, 0.01, 0.05, 0.1]:
+    for sm in ["additive", "multiplicative"]:
+        for sps in [0.1, 1.0, 10.0]:
+            GRID.append({
+                "changepoint_prior_scale": cps,
+                "seasonality_mode": sm,
+                "seasonality_prior_scale": sps,
+            })
 
 # Per komoditas, tentukan apakah perlu preprocessing
 PREPROCESSING_CONFIG = {
-    1: None,                    # beras: tidak perlu (sudah stabil)
-    2: {"method": "iqr", "enabled": False},      # cabai merah: disable agar prophet belajar seasonality/spike harga
-    3: {"method": "iqr", "enabled": False},      # bawang merah: disable agar prophet belajar seasonality/spike harga
+    1: {"method": "iqr", "enabled": True},
+    2: {"method": "iqr", "enabled": True},
+    3: {"method": "iqr", "enabled": True},
 }
 
 
@@ -40,6 +39,8 @@ def build_model(params: Dict) -> Prophet:
         daily_seasonality=False,
         changepoint_prior_scale=params["changepoint_prior_scale"],
         seasonality_mode=params["seasonality_mode"],
+        seasonality_prior_scale=params["seasonality_prior_scale"],
+        changepoint_range=0.9,
     )
     m.add_country_holidays(country_name='ID')
     return m
@@ -86,8 +87,8 @@ def train_one(komoditas_id: int, run_dir: Path, val_ratio: float = 0.15, test_ra
 
     import numpy as np
     
-    # NORMALIZATION: Log Transform agar model tidak kewalahan dengan spike harga ekstrim (misal spike 147% di Cabai)
-    df["y"] = np.log(df["y"])
+    # NORMALIZATION: Dihilangkan sementara untuk testing raw value
+    # df["y"] = np.log(df["y"])
 
     train_df, val_df, test_df = time_train_val_test_split(
         df=df,
@@ -114,8 +115,8 @@ def train_one(komoditas_id: int, run_dir: Path, val_ratio: float = 0.15, test_ra
     
     # Kembalikan skala Log ke Harga Asli (Eksponensial) sebelum evaluasi & plotting
     test_df_real = test_df.copy()
-    test_df_real["y"] = np.exp(test_df_real["y"])
-    pred_test["yhat"] = np.exp(pred_test["yhat"])
+    # test_df_real["y"] = np.exp(test_df_real["y"])
+    # pred_test["yhat"] = np.exp(pred_test["yhat"])
     
     eval_test = test_df_real.merge(pred_test[["ds", "yhat"]], on="ds", how="inner")
     metrics_test = evaluate_df(eval_test)
@@ -129,8 +130,8 @@ def train_one(komoditas_id: int, run_dir: Path, val_ratio: float = 0.15, test_ra
     
     # Kembalikan skala Log ke Asli untuk plot
     df_real = df.copy()
-    df_real["y"] = np.exp(df_real["y"])
-    pred_all["yhat"] = np.exp(pred_all["yhat"])
+    # df_real["y"] = np.exp(df_real["y"])
+    # pred_all["yhat"] = np.exp(pred_all["yhat"])
     
     eval_all = df_real.merge(pred_all[["ds", "yhat"]], on="ds", how="inner")
 

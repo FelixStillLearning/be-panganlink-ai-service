@@ -1,4 +1,0 @@
-komoditas_id,name,train_size,val_size,test_size,mae_test,mape_test,r2_test,best_params,model_path,preprocessing
-1,beras,1052,225,227,417.7716810328056,2.6478965022216494,-31.06039076563968,"{'changepoint_prior_scale': 0.5, 'seasonality_mode': 'additive'}",D:\kuliah\semester_6\KOMPUTASI AWAN\UAS\be-panganlink-ai-service\ml\models\run_20260610_191730\beras\prophet_beras.joblib,none
-2,cabai_merah,1052,225,227,9314.824275262366,18.039611606917223,-1.1967651089356592,"{'changepoint_prior_scale': 0.01, 'seasonality_mode': 'multiplicative'}",D:\kuliah\semester_6\KOMPUTASI AWAN\UAS\be-panganlink-ai-service\ml\models\run_20260610_191730\cabai_merah\prophet_cabai_merah.joblib,none
-3,bawang_merah,1052,225,227,7363.290752157571,14.978238442737146,-2.520890347852626,"{'changepoint_prior_scale': 0.05, 'seasonality_mode': 'additive'}",D:\kuliah\semester_6\KOMPUTASI AWAN\UAS\be-panganlink-ai-service\ml\models\run_20260610_191730\bawang_merah\prophet_bawang_merah.joblib,none
