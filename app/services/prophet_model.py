@@ -36,11 +36,13 @@ def _model_path(komoditas_id: int) -> Path:
 
 
 def fetch_historical_data(komoditas_id: int) -> pd.DataFrame:
-    name = COMMODITIES.get(komoditas_id)
-    if not name:
+    """Fetch historical data from CSV files"""
+    global COMMODITIES
+    komoditas_name = COMMODITIES.get(komoditas_id)
+    if not komoditas_name:
         return pd.DataFrame()
-    
-    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{name}_2022_2026.csv"
+        
+    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{komoditas_name}_2022_2026.csv"
     if not csv_path.exists():
         raise ValueError(f"File CSV tidak ditemukan: {csv_path}")
         
@@ -56,6 +58,55 @@ def fetch_historical_data(komoditas_id: int) -> pd.DataFrame:
         df = df.set_index("ds").resample("D").interpolate(method="linear").reset_index()
         
     return df
+
+def append_historical_data(komoditas_id: int, tanggal: str, harga_aktual: float) -> bool:
+    """Append new actual data from admin to the CSV file"""
+    global COMMODITIES
+    komoditas_name = COMMODITIES.get(komoditas_id)
+    if not komoditas_name:
+        return False
+        
+    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{komoditas_name}_2022_2026.csv"
+    if not csv_path.exists():
+        return False
+        
+    try:
+        df = pd.read_csv(csv_path)
+        # Check if date already exists
+        if tanggal in df['Date_Param'].values:
+            df.loc[df['Date_Param'] == tanggal, 'Price'] = harga_aktual
+        else:
+            new_row = pd.DataFrame([{'Date_Param': tanggal, 'Price': harga_aktual}])
+            df = pd.concat([df, new_row], ignore_index=True)
+            
+        df['Date_Param'] = pd.to_datetime(df['Date_Param']).dt.strftime('%Y-%m-%d')
+        df = df.sort_values('Date_Param')
+        df.to_csv(csv_path, index=False)
+        return True
+    except Exception as e:
+        print(f"Error updating data: {e}")
+        return False
+
+def remove_historical_data(komoditas_id: int, tanggal: str) -> bool:
+    """Remove historical data from the CSV file"""
+    global COMMODITIES
+    komoditas_name = COMMODITIES.get(komoditas_id)
+    if not komoditas_name:
+        return False
+        
+    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{komoditas_name}_2022_2026.csv"
+    if not csv_path.exists():
+        return False
+        
+    try:
+        df = pd.read_csv(csv_path)
+        # Hapus baris yang tanggalnya sama
+        df = df[df['Date_Param'] != tanggal]
+        df.to_csv(csv_path, index=False)
+        return True
+    except Exception as e:
+        print(f"Error deleting data: {e}")
+        return False
 
 
 def _load_model(komoditas_id: int):
@@ -138,6 +189,48 @@ def generate_forecast(komoditas_id: Union[str, int], periods: int = 30) -> dict:
     return {"komoditas_id": komoditas_id, "prediksi": result, "historical": historical_output}
 
 
-def get_recommendation(komoditas_id: Union[str, int]) -> list:
-    res = generate_forecast(komoditas_id, periods=1)
-    return res.get("prediksi", [])
+def get_recommendation(komoditas_id: Union[str, int]) -> dict:
+    kid = _to_int_kid(komoditas_id)
+    res = generate_forecast(kid, periods=7)
+    
+    historical = res.get("historical", [])
+    predictions = res.get("prediksi", [])
+    
+    if not historical or not predictions:
+        return {}
+        
+    last_actual = historical[-1]["harga_aktual"]
+    next_week_pred = predictions[-1]["prediksi_harga"] # Prediksi H+7
+    tomorrow_pred = predictions[0]["prediksi_harga"]
+    
+    # Hitung persentase perubahan dari harga terakhir ke H+7
+    diff = next_week_pred - last_actual
+    pct = (diff / last_actual) * 100 if last_actual > 0 else 0
+    
+    direction = "up" if pct > 0 else "down" if pct < 0 else "stable"
+    icon = "trending_up" if direction == "up" else "trending_down" if direction == "down" else "trending_flat"
+    
+    # Buat narasi rekomendasi berdasarkan Huber Regression output
+    if pct > 5:
+        trend_text = f"+{abs(pct):.1f}% (7 Hari ke depan)"
+        recommendation = "Harga diprediksi naik signifikan dalam seminggu ke depan. Tahan stok Anda jika memungkinkan untuk dijual saat harga puncak."
+    elif pct < -5:
+        trend_text = f"-{abs(pct):.1f}% (7 Hari ke depan)"
+        recommendation = "Tren harga menunjukkan penurunan tajam. Segera jual stok Anda sekarang sebelum harga semakin jatuh."
+    elif pct > 0:
+        trend_text = f"+{abs(pct):.1f}% (Stabil Naik)"
+        recommendation = "Harga diprediksi akan stabil dengan sedikit kenaikan. Anda dapat menjual stok secara bertahap."
+    else:
+        trend_text = f"-{abs(pct):.1f}% (Stabil Turun)"
+        recommendation = "Harga akan mengalami sedikit koreksi turun namun tetap stabil. Jual sesuai kebutuhan operasional."
+        
+    return {
+        "komoditas_id": kid,
+        "komoditas_name": COMMODITIES.get(kid, "Komoditas"),
+        "current_price": last_actual,
+        "predicted_price": tomorrow_pred,
+        "direction": direction,
+        "trend_text": trend_text,
+        "icon": icon,
+        "recommendation": recommendation
+    }
