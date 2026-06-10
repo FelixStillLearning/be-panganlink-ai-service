@@ -19,3 +19,7 @@ htmlcov/
 
 # Linters
 .ruff_cache/
+
+# Local env files
+.env.local
+.env.development

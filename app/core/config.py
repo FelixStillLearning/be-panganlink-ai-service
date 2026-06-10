@@ -4,14 +4,15 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_name: str = "Template Service"
     app_env: str = "development"
-    db_host: str = "localhost"
-    db_port: int = 5432
-    db_name: str = "app"
-    db_user: str = "postgres"
-    db_pass: str = ""
+    db_host: str = "mysql"
+    db_port: int = 3306
+    db_name: str = "panganlink_db"
+    db_user: str = "mysqluser"
+    db_pass: str = "password"
 
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 
 settings = Settings()

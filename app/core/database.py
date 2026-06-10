@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from app.core.config import settings
 
 DATABASE_URL = (
-    f"postgresql://{settings.db_user}:{settings.db_pass}"
+    f"mysql+pymysql://{settings.db_user}:{settings.db_pass}"
     f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
 )
 
