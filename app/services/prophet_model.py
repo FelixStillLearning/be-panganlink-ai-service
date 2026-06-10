@@ -64,49 +64,67 @@ def append_historical_data(komoditas_id: int, tanggal: str, harga_aktual: float)
     global COMMODITIES
     komoditas_name = COMMODITIES.get(komoditas_id)
     if not komoditas_name:
-        return False
+        raise ValueError(f"Komoditas ID {komoditas_id} tidak valid.")
         
     csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{komoditas_name}_2022_2026.csv"
     if not csv_path.exists():
-        return False
+        raise FileNotFoundError(f"File data untuk komoditas {komoditas_name} tidak ditemukan.")
         
     try:
+        # Validate date format first
+        try:
+            parsed_date = pd.to_datetime(tanggal)
+            formatted_date = parsed_date.strftime('%Y-%m-%d')
+        except Exception:
+            raise ValueError(f"Format tanggal '{tanggal}' tidak valid. Gunakan format YYYY-MM-DD.")
+
         df = pd.read_csv(csv_path)
         # Check if date already exists
-        if tanggal in df['Date_Param'].values:
-            df.loc[df['Date_Param'] == tanggal, 'Price'] = harga_aktual
+        if formatted_date in df['Date_Param'].values:
+            df.loc[df['Date_Param'] == formatted_date, 'Price'] = harga_aktual
         else:
-            new_row = pd.DataFrame([{'Date_Param': tanggal, 'Price': harga_aktual}])
+            new_row = pd.DataFrame([{'Date_Param': formatted_date, 'Price': harga_aktual}])
             df = pd.concat([df, new_row], ignore_index=True)
             
         df['Date_Param'] = pd.to_datetime(df['Date_Param']).dt.strftime('%Y-%m-%d')
         df = df.sort_values('Date_Param')
         df.to_csv(csv_path, index=False)
         return True
+    except ValueError as ve:
+        raise ve
     except Exception as e:
         print(f"Error updating data: {e}")
-        return False
+        raise RuntimeError(f"Gagal memperbarui data: {str(e)}")
 
 def remove_historical_data(komoditas_id: int, tanggal: str) -> bool:
     """Remove historical data from the CSV file"""
     global COMMODITIES
     komoditas_name = COMMODITIES.get(komoditas_id)
     if not komoditas_name:
-        return False
+        raise ValueError(f"Komoditas ID {komoditas_id} tidak valid.")
         
     csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{komoditas_name}_2022_2026.csv"
     if not csv_path.exists():
-        return False
+        raise FileNotFoundError(f"File data untuk komoditas {komoditas_name} tidak ditemukan.")
         
     try:
+        # Validate date format
+        try:
+            parsed_date = pd.to_datetime(tanggal)
+            formatted_date = parsed_date.strftime('%Y-%m-%d')
+        except Exception:
+            raise ValueError(f"Format tanggal '{tanggal}' tidak valid. Gunakan format YYYY-MM-DD.")
+
         df = pd.read_csv(csv_path)
         # Hapus baris yang tanggalnya sama
-        df = df[df['Date_Param'] != tanggal]
+        df = df[df['Date_Param'] != formatted_date]
         df.to_csv(csv_path, index=False)
         return True
+    except ValueError as ve:
+        raise ve
     except Exception as e:
         print(f"Error deleting data: {e}")
-        return False
+        raise RuntimeError(f"Gagal menghapus data: {str(e)}")
 
 
 def _load_model(komoditas_id: int):
