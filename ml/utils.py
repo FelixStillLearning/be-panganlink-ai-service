@@ -8,7 +8,7 @@ from app.core.database import engine
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parent
-MODEL_DIR = PROJECT_DIR / "app" / "models"
+MODEL_DIR = PROJECT_DIR / "ml" / "models"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 COMMODITIES: Dict[int, str] = {
@@ -19,18 +19,23 @@ COMMODITIES: Dict[int, str] = {
 
 
 def fetch_historical_data(komoditas_id: int) -> pd.DataFrame:
-    query = text(
-        """
-        SELECT tanggal AS ds, harga AS y
-        FROM harga_pasar
-        WHERE komoditas_id = :komoditas_id
-        ORDER BY tanggal ASC
-        """
-    )
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"komoditas_id": komoditas_id})
-
-    df["ds"] = pd.to_datetime(df["ds"])
-    df["y"] = pd.to_numeric(df["y"], errors="coerce")
-    df = df.dropna().sort_values("ds").reset_index(drop=True)
+    name = COMMODITIES.get(komoditas_id)
+    if not name:
+        return pd.DataFrame()
+    
+    csv_path = PROJECT_DIR / "data" / "raw" / f"komoditas_{name}_2022_2026.csv"
+    if not csv_path.exists():
+        raise ValueError(f"File CSV tidak ditemukan: {csv_path}")
+        
+    df = pd.read_csv(csv_path)
+    df["ds"] = pd.to_datetime(df["Date_Param"])
+    df["y"] = pd.to_numeric(df["Price"], errors="coerce")
+    df = df.dropna(subset=["ds", "y"])
+    
+    df = df.groupby("ds")["y"].mean().reset_index()
+    df = df.sort_values("ds")
+    
+    if not df.empty:
+        df = df.set_index("ds").resample("D").interpolate(method="linear").reset_index()
+        
     return df

@@ -14,25 +14,35 @@ GRID = [
     {"changepoint_prior_scale": 0.01, "seasonality_mode": "additive"},
     {"changepoint_prior_scale": 0.05, "seasonality_mode": "additive"},
     {"changepoint_prior_scale": 0.1, "seasonality_mode": "additive"},
+    {"changepoint_prior_scale": 0.5, "seasonality_mode": "additive"},
+    {"changepoint_prior_scale": 1.0, "seasonality_mode": "additive"},
+    {"changepoint_prior_scale": 3.0, "seasonality_mode": "additive"},
+    {"changepoint_prior_scale": 0.01, "seasonality_mode": "multiplicative"},
     {"changepoint_prior_scale": 0.05, "seasonality_mode": "multiplicative"},
+    {"changepoint_prior_scale": 0.1, "seasonality_mode": "multiplicative"},
+    {"changepoint_prior_scale": 0.5, "seasonality_mode": "multiplicative"},
+    {"changepoint_prior_scale": 1.0, "seasonality_mode": "multiplicative"},
+    {"changepoint_prior_scale": 3.0, "seasonality_mode": "multiplicative"},
 ]
 
 # Per komoditas, tentukan apakah perlu preprocessing
 PREPROCESSING_CONFIG = {
     1: None,                    # beras: tidak perlu (sudah stabil)
-    2: {"method": "iqr", "enabled": True},      # cabai merah: volatile
-    3: {"method": "iqr", "enabled": True},      # bawang merah: volatile
+    2: {"method": "iqr", "enabled": False},      # cabai merah: disable agar prophet belajar seasonality/spike harga
+    3: {"method": "iqr", "enabled": False},      # bawang merah: disable agar prophet belajar seasonality/spike harga
 }
 
 
 def build_model(params: Dict) -> Prophet:
-    return Prophet(
+    m = Prophet(
         yearly_seasonality=True,
         weekly_seasonality=True,
         daily_seasonality=False,
         changepoint_prior_scale=params["changepoint_prior_scale"],
         seasonality_mode=params["seasonality_mode"],
     )
+    m.add_country_holidays(country_name='ID')
+    return m
 
 
 def select_best_params(train_df: pd.DataFrame, val_df: pd.DataFrame) -> Dict:
@@ -57,7 +67,7 @@ def select_best_params(train_df: pd.DataFrame, val_df: pd.DataFrame) -> Dict:
     return best_params
 
 
-def train_one(komoditas_id: int, val_ratio: float = 0.15, test_ratio: float = 0.15):
+def train_one(komoditas_id: int, run_dir: Path, val_ratio: float = 0.15, test_ratio: float = 0.15):
     name = COMMODITIES[komoditas_id]
     df = fetch_historical_data(komoditas_id)
 
@@ -74,6 +84,11 @@ def train_one(komoditas_id: int, val_ratio: float = 0.15, test_ratio: float = 0.
             print(f"[SKIP] {name}: data terlalu sedikit setelah preprocessing ({len(df)} rows).")
             return None
 
+    import numpy as np
+    
+    # NORMALIZATION: Log Transform agar model tidak kewalahan dengan spike harga ekstrim (misal spike 147% di Cabai)
+    df["y"] = np.log(df["y"])
+
     train_df, val_df, test_df = time_train_val_test_split(
         df=df,
         val_ratio=val_ratio,
@@ -86,23 +101,47 @@ def train_one(komoditas_id: int, val_ratio: float = 0.15, test_ratio: float = 0.
     best_params = select_best_params(train_df, val_df)
     print(f"[{name}] best params: {best_params}")
 
-    final_train = (
+    # 1. Evaluasi murni di Test Set (Untuk melihat error out-of-sample)
+    eval_train = (
         pd.concat([train_df, val_df], ignore_index=True)
         .sort_values("ds")
         .reset_index(drop=True)
     )
-    final_model = build_model(best_params)
-    final_model.fit(final_train)
+    eval_model = build_model(best_params)
+    eval_model.fit(eval_train)
 
-    pred_test = final_model.predict(test_df[["ds"]])
-    eval_test = test_df.merge(pred_test[["ds", "yhat"]], on="ds", how="inner")
+    pred_test = eval_model.predict(test_df[["ds"]])
+    
+    # Kembalikan skala Log ke Harga Asli (Eksponensial) sebelum evaluasi & plotting
+    test_df_real = test_df.copy()
+    test_df_real["y"] = np.exp(test_df_real["y"])
+    pred_test["yhat"] = np.exp(pred_test["yhat"])
+    
+    eval_test = test_df_real.merge(pred_test[["ds", "yhat"]], on="ds", how="inner")
     metrics_test = evaluate_df(eval_test)
 
-    model_path = MODEL_DIR / f"prophet_{name}.joblib"
+    # 2. Final Model: Train menggunakan SELURUH data (termasuk test set)
+    final_model = build_model(best_params)
+    final_model.fit(df)
+
+    # 3. Plotting: Prediksi di seluruh data historis untuk melihat In-Sample Fit
+    pred_all = final_model.predict(df[["ds"]])
+    
+    # Kembalikan skala Log ke Asli untuk plot
+    df_real = df.copy()
+    df_real["y"] = np.exp(df_real["y"])
+    pred_all["yhat"] = np.exp(pred_all["yhat"])
+    
+    eval_all = df_real.merge(pred_all[["ds", "yhat"]], on="ds", how="inner")
+
+    komoditas_dir = run_dir / name
+    komoditas_dir.mkdir(parents=True, exist_ok=True)
+    
+    model_path = komoditas_dir / f"prophet_{name}.joblib"
     joblib.dump(final_model, model_path)
 
-    plot_prefix = str((MODEL_DIR / f"prophet_{name}_test").resolve())
-    plot_actual_vs_pred(eval_test, plot_prefix)
+    plot_prefix = str((komoditas_dir / f"prophet_{name}_fit").resolve())
+    plot_actual_vs_pred(eval_all, plot_prefix)
 
     print(
         f"[{name}] train={len(train_df)} val={len(val_df)} test={len(test_df)} "
@@ -124,7 +163,7 @@ def train_one(komoditas_id: int, val_ratio: float = 0.15, test_ratio: float = 0.
         "preprocessing": "iqr" if (config and config.get("enabled")) else "none",
     }
 
-    metrics_path = MODEL_DIR / "metrics_summary.csv"
+    metrics_path = run_dir / "metrics_summary.csv"
     if metrics_path.exists():
         old_df = pd.read_csv(metrics_path)
         old_df = old_df[old_df["komoditas_id"] != komoditas_id]
@@ -137,9 +176,14 @@ def train_one(komoditas_id: int, val_ratio: float = 0.15, test_ratio: float = 0.
 
 
 def main():
+    import datetime
+    run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = MODEL_DIR / f"run_{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    
     results = []
     for kid in COMMODITIES:
-        res = train_one(kid, val_ratio=0.15, test_ratio=0.15)
+        res = train_one(kid, run_dir, val_ratio=0.15, test_ratio=0.15)
         if res:
             results.append(res)
 

@@ -14,7 +14,7 @@ COMMODITIES: Dict[int, str] = {
     3: "bawang_merah",
 }
 
-MODEL_DIR = Path(__file__).resolve().parents[1] / "models"
+MODEL_DIR = Path(__file__).resolve().parents[2] / "ml" / "models"
 
 
 def _to_int_kid(komoditas_id: Union[str, int]) -> int:
@@ -28,24 +28,36 @@ def _model_path(komoditas_id: int) -> Path:
     name = COMMODITIES.get(komoditas_id)
     if not name:
         raise ValueError(f"komoditas_id tidak dikenal: {komoditas_id}")
+        
+    if MODEL_DIR.exists():
+        runs = sorted([d for d in MODEL_DIR.iterdir() if d.is_dir() and d.name.startswith("run_")])
+        if runs:
+            latest_run = runs[-1]
+            return latest_run / name / f"prophet_{name}.joblib"
+            
     return MODEL_DIR / f"prophet_{name}.joblib"
 
 
 def fetch_historical_data(komoditas_id: int) -> pd.DataFrame:
-    query = text(
-        """
-        SELECT tanggal AS ds, harga AS y
-        FROM harga_pasar
-        WHERE komoditas_id = :komoditas_id
-        ORDER BY tanggal ASC
-        """
-    )
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"komoditas_id": komoditas_id})
-
-    df["ds"] = pd.to_datetime(df["ds"])
-    df["y"] = pd.to_numeric(df["y"], errors="coerce")
-    df = df.dropna().sort_values("ds").reset_index(drop=True)
+    name = COMMODITIES.get(komoditas_id)
+    if not name:
+        return pd.DataFrame()
+    
+    csv_path = Path(__file__).resolve().parents[2] / "data" / "raw" / f"komoditas_{name}_2022_2026.csv"
+    if not csv_path.exists():
+        raise ValueError(f"File CSV tidak ditemukan: {csv_path}")
+        
+    df = pd.read_csv(csv_path)
+    df["ds"] = pd.to_datetime(df["Date_Param"])
+    df["y"] = pd.to_numeric(df["Price"], errors="coerce")
+    df = df.dropna(subset=["ds", "y"])
+    
+    df = df.groupby("ds")["y"].mean().reset_index()
+    df = df.sort_values("ds")
+    
+    if not df.empty:
+        df = df.set_index("ds").resample("D").interpolate(method="linear").reset_index()
+        
     return df
 
 
@@ -63,34 +75,44 @@ def _load_or_train_model(komoditas_id: int) -> Prophet:
         weekly_seasonality=True,
         daily_seasonality=False,
     )
+    m.add_country_holidays(country_name='ID')
     m.fit(df)
 
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(m, path)
     return m
 
 
-def generate_forecast(komoditas_id: Union[str, int], periods: int = 30) -> list:
+def generate_forecast(komoditas_id: Union[str, int], periods: int = 30) -> dict:
     kid = _to_int_kid(komoditas_id)
     if periods <= 0:
-        return []
+        return {"komoditas_id": komoditas_id, "prediksi": []}
 
     model = _load_or_train_model(kid)
     future = model.make_future_dataframe(periods=periods)
     forecast = model.predict(future)
-    future_forecast = forecast[["ds", "yhat", "yhat_lower", "yhat_upper"]].tail(periods)
+    
+    forecast["yhat"] = np.exp(forecast["yhat"])
+    forecast["yhat_lower"] = np.exp(forecast["yhat_lower"])
+    forecast["yhat_upper"] = np.exp(forecast["yhat_upper"])
+
+    forecast["yhat"] = forecast["yhat"].apply(lambda x: max(0.0, x))
+    forecast["yhat_lower"] = forecast["yhat_lower"].apply(lambda x: max(0.0, x))
+    forecast["yhat_upper"] = forecast["yhat_upper"].apply(lambda x: max(0.0, x))
+
+    future_forecast = forecast.tail(periods)
 
     result = []
     for _, row in future_forecast.iterrows():
         result.append(
             {
                 "tanggal": row["ds"].strftime("%Y-%m-%d"),
-                "prediksi_harga": round(float(row["yhat"]), 2),
-                "batas_bawah": round(float(row["yhat_lower"]), 2),
-                "batas_atas": round(float(row["yhat_upper"]), 2),
+                "prediksi_harga": round(row["yhat"], 2),
+                "batas_bawah": round(row["yhat_lower"], 2),
+                "batas_atas": round(row["yhat_upper"], 2),
             }
         )
-    return result
+    return {"komoditas_id": komoditas_id, "prediksi": result}
 
 
 def get_recommendation(komoditas_id: Union[str, int]) -> list:
