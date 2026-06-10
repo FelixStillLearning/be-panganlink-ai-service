@@ -189,6 +189,48 @@ def generate_forecast(komoditas_id: Union[str, int], periods: int = 30) -> dict:
     return {"komoditas_id": komoditas_id, "prediksi": result, "historical": historical_output}
 
 
-def get_recommendation(komoditas_id: Union[str, int]) -> list:
-    res = generate_forecast(komoditas_id, periods=1)
-    return res.get("prediksi", [])
+def get_recommendation(komoditas_id: Union[str, int]) -> dict:
+    kid = _to_int_kid(komoditas_id)
+    res = generate_forecast(kid, periods=7)
+    
+    historical = res.get("historical", [])
+    predictions = res.get("prediksi", [])
+    
+    if not historical or not predictions:
+        return {}
+        
+    last_actual = historical[-1]["harga_aktual"]
+    next_week_pred = predictions[-1]["prediksi_harga"] # Prediksi H+7
+    tomorrow_pred = predictions[0]["prediksi_harga"]
+    
+    # Hitung persentase perubahan dari harga terakhir ke H+7
+    diff = next_week_pred - last_actual
+    pct = (diff / last_actual) * 100 if last_actual > 0 else 0
+    
+    direction = "up" if pct > 0 else "down" if pct < 0 else "stable"
+    icon = "trending_up" if direction == "up" else "trending_down" if direction == "down" else "trending_flat"
+    
+    # Buat narasi rekomendasi berdasarkan Huber Regression output
+    if pct > 5:
+        trend_text = f"+{abs(pct):.1f}% (7 Hari ke depan)"
+        recommendation = "Harga diprediksi naik signifikan dalam seminggu ke depan. Tahan stok Anda jika memungkinkan untuk dijual saat harga puncak."
+    elif pct < -5:
+        trend_text = f"-{abs(pct):.1f}% (7 Hari ke depan)"
+        recommendation = "Tren harga menunjukkan penurunan tajam. Segera jual stok Anda sekarang sebelum harga semakin jatuh."
+    elif pct > 0:
+        trend_text = f"+{abs(pct):.1f}% (Stabil Naik)"
+        recommendation = "Harga diprediksi akan stabil dengan sedikit kenaikan. Anda dapat menjual stok secara bertahap."
+    else:
+        trend_text = f"-{abs(pct):.1f}% (Stabil Turun)"
+        recommendation = "Harga akan mengalami sedikit koreksi turun namun tetap stabil. Jual sesuai kebutuhan operasional."
+        
+    return {
+        "komoditas_id": kid,
+        "komoditas_name": COMMODITIES.get(kid, "Komoditas"),
+        "current_price": last_actual,
+        "predicted_price": tomorrow_pred,
+        "direction": direction,
+        "trend_text": trend_text,
+        "icon": icon,
+        "recommendation": recommendation
+    }
