@@ -17,9 +17,13 @@ def recommend_price(request: RecommendRequest):
 @router.post("/forecast", response_model=AIResponse)
 def forecast_price(request: ForecastRequest):
     try:
-        preds = generate_forecast(request.komoditas_id, periods=30)
+        preds = generate_forecast(request.komoditas_id, periods=request.periods)
         if not preds:
             raise HTTPException(status_code=404, detail="Not enough data to generate forecast")
-        return AIResponse(komoditas_id=request.komoditas_id, predictions=preds)
+        return AIResponse(
+            komoditas_id=request.komoditas_id, 
+            predictions=preds.get("prediksi", []),
+            historical=preds.get("historical", [])
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

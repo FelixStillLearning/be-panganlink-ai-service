@@ -6,7 +6,9 @@ class RecommendRequest(BaseModel):
 
 class ForecastRequest(BaseModel):
     komoditas_id: str
+    periods: int = 30
 
 class AIResponse(BaseModel):
     komoditas_id: str
     predictions: List[Dict[str, Any]]
+    historical: List[Dict[str, Any]] = []

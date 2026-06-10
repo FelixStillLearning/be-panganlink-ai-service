@@ -126,7 +126,16 @@ def generate_forecast(komoditas_id: Union[str, int], periods: int = 30) -> dict:
             "batas_atas": round(batas_atas, 2),
         })
         
-    return {"komoditas_id": komoditas_id, "prediksi": result}
+    historical_output = []
+    # Kembalikan 365 hari (1 tahun) terakhir untuk grafik historis
+    recent_history = df.tail(365)
+    for _, row in recent_history.iterrows():
+        historical_output.append({
+            "tanggal": row["ds"].strftime("%Y-%m-%d"),
+            "harga_aktual": round(row["y"], 2)
+        })
+        
+    return {"komoditas_id": komoditas_id, "prediksi": result, "historical": historical_output}
 
 
 def get_recommendation(komoditas_id: Union[str, int]) -> list:
